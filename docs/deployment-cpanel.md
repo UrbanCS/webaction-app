@@ -21,6 +21,13 @@ Option recommandée si Composer est disponible localement ou sur cPanel:
 ```bash
 cd backend
 composer install --no-dev --optimize-autoloader
+php tools/generate-vapid-keys.php
+```
+
+Si la génération PHP échoue sur Windows avec une erreur OpenSSL, générer les clés avec:
+
+```bash
+npx web-push generate-vapid-keys
 ```
 
 Si Composer n'est pas disponible sur cPanel, exécuter cette commande localement, puis uploader le dossier `backend/vendor` avec le reste du backend.

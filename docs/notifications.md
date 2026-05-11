@@ -13,7 +13,13 @@ Avec Composer:
 ```bash
 cd backend
 composer install
-php vendor/bin/generate-vapid-keys
+php tools/generate-vapid-keys.php
+```
+
+Si PHP/OpenSSL local refuse de créer la clé, utiliser l'outil Node:
+
+```bash
+npx web-push generate-vapid-keys
 ```
 
 Copier la clé publique et la clé privée dans `backend/config/config.php`.
