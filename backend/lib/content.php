@@ -203,6 +203,8 @@ function latest_items(): array
 {
     $stmt = db()->query("SELECT source_type, source_id, title, excerpt, url, image_url, content_hash, last_seen_at FROM detected_contents ORDER BY first_seen_at DESC, id DESC LIMIT 80");
     $groups = ['realisations' => [], 'watch' => []];
+    $allRealisations = [];
+    $allWatch = [];
     foreach ($stmt as $row) {
         $item = [
             'id' => $row['source_id'],
@@ -214,12 +216,14 @@ function latest_items(): array
             'hash' => $row['content_hash'],
             'detected_at' => $row['last_seen_at'],
         ];
-        if ($row['source_type'] === 'realisation' && count($groups['realisations']) < 24) {
-            $groups['realisations'][] = $item;
+        if ($row['source_type'] === 'realisation') {
+            $allRealisations[] = $item;
         }
-        if ($row['source_type'] === 'watch' && count($groups['watch']) < 12) {
-            $groups['watch'][] = $item;
+        if ($row['source_type'] === 'watch') {
+            $allWatch[] = $item;
         }
     }
+    $groups['realisations'] = array_slice(array_reverse($allRealisations), 0, 24);
+    $groups['watch'] = array_slice(array_reverse($allWatch), 0, 12);
     return $groups;
 }

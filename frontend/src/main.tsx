@@ -39,8 +39,12 @@ type DetailResponse = {
   };
 };
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
+
 const tabs = [
-  { id: 'home', label: 'Accueil' },
   { id: 'realisations', label: 'Réalisations' },
   { id: 'watch', label: 'À surveiller' }
 ] as const;
@@ -84,19 +88,45 @@ function useLatest() {
 
 function App() {
   const { data, error, loading, reload } = useLatest();
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('realisations');
   const [selected, setSelected] = useState<Item | null>(null);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pushMessage, setPushMessage] = useState('');
+  const [pushEnabled, setPushEnabled] = useState(false);
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+      navigator.serviceWorker.ready
+        .then((registration) => registration.pushManager.getSubscription())
+        .then((subscription) => setPushEnabled(Boolean(subscription)))
+        .catch(() => undefined);
     }
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const realisations = data?.items.realisations ?? [];
   const watch = data?.items.watch ?? [];
-  const featured = useMemo(() => realisations.slice(0, 6), [realisations]);
+  const isApple = /iphone|ipad|ipod|macintosh/i.test(navigator.userAgent);
+
+  async function installApp() {
+    if (installPrompt) {
+      await installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => undefined);
+      setInstallPrompt(null);
+      return;
+    }
+    setShowInstallHelp(true);
+  }
 
   async function enablePush() {
     setPushMessage('');
@@ -128,9 +158,34 @@ function App() {
         body: JSON.stringify(subscription)
       });
       if (!response.ok) throw new Error('subscribe failed');
+      setPushEnabled(true);
       setPushMessage('Notifications activées.');
     } catch {
       setPushMessage("Activation impossible. Vérifiez la configuration des clés VAPID.");
+    }
+  }
+
+  async function disablePush() {
+    setPushMessage('');
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        setPushEnabled(false);
+        setPushMessage('Notifications désactivées.');
+        return;
+      }
+
+      await fetch(apiUrl('unsubscribe.php'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: subscription.endpoint })
+      });
+      await subscription.unsubscribe();
+      setPushEnabled(false);
+      setPushMessage('Notifications désactivées.');
+    } catch {
+      setPushMessage('Impossible de désactiver les notifications pour le moment.');
     }
   }
 
@@ -138,15 +193,18 @@ function App() {
     return <Detail item={selected} onBack={() => setSelected(null)} />;
   }
 
+  if (showInstallHelp) {
+    return <InstallHelp onBack={() => setShowInstallHelp(false)} />;
+  }
+
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-white shadow-2xl shadow-slate-200">
       <header className="bg-ink px-5 pb-5 pt-6 text-white">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-webblue">Webaction</p>
-            <h1 className="mt-1 text-2xl font-bold">Réalisations et nouvelles</h1>
+            <h1 className="text-2xl font-bold">Réalisations et nouvelles</h1>
           </div>
-          <img src="./icon.svg" alt="" className="h-12 w-12 rounded-2xl" />
+          <img src="./logo-webaction.png" alt="Webaction" className="h-12 w-32 object-contain" />
         </div>
         <p className="mt-4 text-sm leading-6 text-slate-300">
           Une app légère pour suivre les derniers projets et les informations à surveiller.
@@ -159,17 +217,21 @@ function App() {
             Site complet
           </a>
         </div>
+        <button onClick={installApp} className="mt-3 w-full rounded border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold text-white">
+          {isApple && !installPrompt ? "Voir comment installer" : "Installer l'app"}
+        </button>
       </header>
 
       <section className="border-b border-slate-200 bg-slate-50 px-5 py-4">
         <p className="text-sm text-slate-600">Recevez une alerte quand Webaction ajoute une réalisation ou une info à surveiller.</p>
-        <button onClick={enablePush} className="mt-3 w-full rounded bg-ink px-4 py-3 text-sm font-semibold text-white">
-          Activer les notifications
+        <button onClick={pushEnabled ? disablePush : enablePush} className="mt-3 w-full rounded bg-ink px-4 py-3 text-sm font-semibold text-white">
+          {pushEnabled ? 'Désactiver les notifications' : 'Activer les notifications'}
         </button>
+        {pushEnabled && !pushMessage && <p className="mt-2 text-sm text-slate-600">Notifications activées.</p>}
         {pushMessage && <p className="mt-2 text-sm text-slate-600">{pushMessage}</p>}
       </section>
 
-      <nav className="grid grid-cols-3 border-b border-slate-200 bg-white">
+      <nav className="grid grid-cols-2 border-b border-slate-200 bg-white">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -184,9 +246,6 @@ function App() {
       <section className="flex-1 px-5 py-5">
         {loading && <State title="Chargement" body="Récupération des dernières informations..." />}
         {error && <State title="Erreur" body={error} action={reload} />}
-        {!loading && !error && activeTab === 'home' && (
-          <ItemList items={featured} empty="Aucune réalisation récente détectée." onSelect={setSelected} />
-        )}
         {!loading && !error && activeTab === 'realisations' && (
           <ItemList items={realisations} empty="Aucune réalisation détectée." onSelect={setSelected} />
         )}
@@ -195,6 +254,45 @@ function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function InstallHelp({ onBack }: { onBack: () => void }) {
+  return (
+    <main className="mx-auto min-h-screen max-w-md bg-slate-50">
+      <header className="bg-ink px-5 py-5 text-white">
+        <button onClick={onBack} className="rounded border border-white/20 px-4 py-2 text-sm font-semibold">
+          Retour
+        </button>
+        <h1 className="mt-5 text-2xl font-bold">Installer l'application</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-300">
+          Ajoutez Webaction à l'écran d'accueil pour l'ouvrir comme une application.
+        </p>
+      </header>
+      <section className="space-y-4 px-5 py-5">
+        <InstallCard
+          title="iPhone / iPad"
+          body="Ouvrez l'app dans Safari, appuyez sur Partager, puis choisissez Ajouter à l'écran d'accueil."
+        />
+        <InstallCard
+          title="Android"
+          body="Ouvrez l'app dans Chrome, appuyez sur le menu du navigateur, puis choisissez Ajouter à l'écran d'accueil ou Installer l'application."
+        />
+        <InstallCard
+          title="Windows"
+          body="Ouvrez l'app dans Chrome ou Edge, puis utilisez l'icône d'installation dans la barre d'adresse ou le menu du navigateur."
+        />
+      </section>
+    </main>
+  );
+}
+
+function InstallCard({ title, body }: { title: string; body: string }) {
+  return (
+    <article className="rounded border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-950">{title}</h2>
+      <p className="mt-3 text-sm leading-6 text-slate-600">{body}</p>
+    </article>
   );
 }
 
