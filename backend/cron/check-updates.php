@@ -23,10 +23,17 @@ try {
     $items = array_merge(extract_realisations($homeHtml), extract_watch_items($watchHtml));
     $newItems = [];
     $isFirstRun = ((int) db()->query('SELECT COUNT(*) FROM detected_contents')->fetchColumn()) === 0;
+    $initialTypeCounts = [
+        'realisation' => (int) db()->query("SELECT COUNT(*) FROM detected_contents WHERE source_type = 'realisation'")->fetchColumn(),
+        'watch' => (int) db()->query("SELECT COUNT(*) FROM detected_contents WHERE source_type = 'watch'")->fetchColumn(),
+    ];
 
     foreach ($items as $item) {
-        if (upsert_detected_item($item)) {
+        $changeType = upsert_detected_item($item);
+        if ($changeType === 'created') {
             $newItems[] = $item;
+        } elseif ($changeType === 'updated') {
+            cron_log('Updated existing ' . $item['type'] . ': ' . $item['title'] . '. No notification sent.');
         }
     }
 
@@ -36,6 +43,10 @@ try {
     }
 
     foreach ($newItems as $item) {
+        if (($initialTypeCounts[$item['type']] ?? 0) === 0) {
+            cron_log('Initial seed for ' . $item['type'] . ': ' . $item['title'] . '. No notification sent.');
+            continue;
+        }
         $label = $item['type'] === 'watch' ? 'À surveiller' : 'Nouvelle réalisation';
         $result = send_push_to_all($label . ' Webaction', $item['title'], $item['url']);
         cron_log($label . ': ' . $item['title'] . ' | sent=' . ($result['sent'] ?? 0));
@@ -47,7 +58,7 @@ try {
     try {
         $stmt = db()->prepare('INSERT INTO notification_logs (title, body, status, error_message, created_at) VALUES (?, ?, ?, ?, NOW())');
         $stmt->execute(['Cron error', 'check-updates.php failed', 'failed', $e->getMessage()]);
-    } catch (Throwable) {
+    } catch (Throwable $ignored) {
     }
     exit(1);
 }

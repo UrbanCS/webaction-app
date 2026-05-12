@@ -30,6 +30,8 @@ Si la génération PHP échoue sur Windows avec une erreur OpenSSL, générer le
 npx web-push generate-vapid-keys
 ```
 
+Note: le serveur RapidNet observé roule en PHP 7.4.33. Le projet force donc `minishlink/web-push` en version `v7.x`, compatible PHP 7.4.
+
 Si Composer n'est pas disponible sur cPanel, exécuter cette commande localement, puis uploader le dossier `backend/vendor` avec le reste du backend.
 
 ## 4. Builder le frontend

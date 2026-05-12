@@ -74,7 +74,7 @@ function absolute_url(?string $url): string
     if (!$url) {
         return '';
     }
-    if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+    if (strpos($url, 'http://') === 0 || strpos($url, 'https://') === 0) {
         return $url;
     }
     $base = rtrim(app_config()['site_url'] ?? 'https://webaction.ca', '/');

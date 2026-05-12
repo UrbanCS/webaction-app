@@ -36,7 +36,7 @@ function extract_realisations(string $html): array
     $xpath = dom_xpath($html);
     $max = (int) ((app_config()['scraper']['max_realisations'] ?? 24));
     $items = [];
-    $nodes = $xpath->query("//*[@id='portfolio']//div[contains(concat(' ', normalize-space(@class), ' '), ' el-item ')]");
+    $nodes = $xpath->query("//*[@id='portfolio']//a[contains(concat(' ', normalize-space(@class), ' '), ' el-item ')]");
 
     foreach ($nodes as $node) {
         if (count($items) >= $max) {
@@ -48,7 +48,7 @@ function extract_realisations(string $html): array
             continue;
         }
         $metaNode = $xpath->query(".//*[contains(concat(' ', normalize-space(@class), ' '), ' el-meta ')]", $node)->item(0);
-        $linkNode = $xpath->query(".//a[@href]", $node)->item(0);
+        $linkNode = $node instanceof DOMElement && $node->hasAttribute('href') ? $node : $xpath->query(".//a[@href]", $node)->item(0);
         $imageNode = $xpath->query(".//img", $node)->item(0);
         $url = $linkNode instanceof DOMElement ? $linkNode->getAttribute('href') : app_config()['sources']['home'];
         $image = '';
@@ -103,6 +103,66 @@ function extract_watch_items(string $html): array
     return $items;
 }
 
+function extract_detail_from_url(string $url): array
+{
+    $url = absolute_url($url);
+    $host = parse_url($url, PHP_URL_HOST);
+    $siteHost = parse_url(app_config()['site_url'] ?? 'https://webaction.ca', PHP_URL_HOST);
+
+    if (!$host || !$siteHost || strtolower($host) !== strtolower($siteHost)) {
+        throw new RuntimeException('Only Webaction detail pages can be fetched.');
+    }
+
+    $html = fetch_source($url);
+    $xpath = dom_xpath($html);
+    $titleNode = $xpath->query("//*[@property='headline']")->item(0);
+    $contentNode = $xpath->query("//*[@property='text']")->item(0);
+    $imageNode = $xpath->query("//*[@property='image']//img|//article//img")->item(0);
+
+    $detailHtml = '';
+    if ($contentNode instanceof DOMNode) {
+        $detailHtml = sanitize_detail_html(inner_html($contentNode));
+    }
+
+    $image = '';
+    if ($imageNode instanceof DOMElement) {
+        $image = $imageNode->getAttribute('data-src') ?: $imageNode->getAttribute('src');
+    }
+
+    return [
+        'title' => $titleNode ? normalize_text($titleNode->textContent) : '',
+        'html' => $detailHtml,
+        'image' => absolute_url($image),
+        'url' => $url,
+    ];
+}
+
+function inner_html(DOMNode $node): string
+{
+    $html = '';
+    foreach ($node->childNodes as $child) {
+        $html .= $node->ownerDocument->saveHTML($child);
+    }
+    return $html;
+}
+
+function sanitize_detail_html(string $html): string
+{
+    $html = preg_replace('#<(script|style|iframe|object|embed|form|input|button)\b[^>]*>.*?</\1>#is', '', $html) ?? $html;
+    $html = preg_replace('#</?(div|span|section|article)[^>]*>#i', '', $html) ?? $html;
+    $html = preg_replace('/\s(on[a-z]+|style|class|id|data-[a-z0-9_-]+)="[^"]*"/i', '', $html) ?? $html;
+    $html = preg_replace("/\s(on[a-z]+|style|class|id|data-[a-z0-9_-]+)='[^']*'/i", '', $html) ?? $html;
+    $html = preg_replace_callback('/\s(href|src)="([^"]*)"/i', function (array $matches): string {
+        $url = html_entity_decode($matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if (strpos($url, 'javascript:') === 0 || strpos($url, 'data:') === 0) {
+            return '';
+        }
+        return ' ' . strtolower($matches[1]) . '="' . htmlspecialchars(absolute_url($url), ENT_QUOTES, 'UTF-8') . '"';
+    }, $html) ?? $html;
+
+    return trim($html);
+}
+
 function normalize_item(array $item): array
 {
     $item['hash'] = hash('sha256', implode('|', [
@@ -121,7 +181,7 @@ function slug_id(string $type, string $title, string $url): string
     return substr(hash('sha256', $type . '|' . strtolower($title) . '|' . $url), 0, 24);
 }
 
-function upsert_detected_item(array $item): bool
+function upsert_detected_item(array $item): string
 {
     $pdo = db();
     $select = $pdo->prepare('SELECT id, content_hash FROM detected_contents WHERE source_type = ? AND source_id = ? LIMIT 1');
@@ -131,12 +191,12 @@ function upsert_detected_item(array $item): bool
     if (!$existing) {
         $insert = $pdo->prepare('INSERT INTO detected_contents (source_type, source_id, title, excerpt, url, image_url, content_hash, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
         $insert->execute([$item['type'], $item['source_id'], $item['title'], $item['excerpt'], $item['url'], $item['image'], $item['hash']]);
-        return true;
+        return 'created';
     }
 
     $update = $pdo->prepare('UPDATE detected_contents SET title = ?, excerpt = ?, url = ?, image_url = ?, content_hash = ?, last_seen_at = NOW() WHERE id = ?');
     $update->execute([$item['title'], $item['excerpt'], $item['url'], $item['image'], $item['hash'], $existing['id']]);
-    return !hash_equals((string) $existing['content_hash'], (string) $item['hash']);
+    return !hash_equals((string) $existing['content_hash'], (string) $item['hash']) ? 'updated' : 'unchanged';
 }
 
 function latest_items(): array

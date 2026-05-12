@@ -24,6 +24,8 @@ npx web-push generate-vapid-keys
 
 Copier la clé publique et la clé privée dans `backend/config/config.php`.
 
+Sur un serveur PHP 7.4, garder `minishlink/web-push` en `v7.x`. Le fichier `backend/composer.json` fixe une plateforme PHP 7.4 pour éviter d'installer une version PHP 8 seulement.
+
 ## Tester une notification
 
 Après avoir activé les notifications dans la PWA:

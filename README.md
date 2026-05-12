@@ -51,6 +51,7 @@ Limites:
 
 - HTML source modifié: corriger les sélecteurs DOM dans `backend/lib/content.php`.
 - Composer indisponible sur cPanel: installer les dépendances localement et uploader `backend/vendor`.
+- Serveur PHP 7.4: `backend/composer.json` force `minishlink/web-push` en `v7.x`, compatible PHP 7.4.
 - Service worker et Push exigent HTTPS.
 - Les navigateurs ne permettent pas de demander les notifications sans action utilisateur.
 

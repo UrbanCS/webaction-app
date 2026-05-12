@@ -12,3 +12,32 @@ body {
   min-width: 320px;
   background: #f5f7fb;
 }
+
+.detail-content h2,
+.detail-content h3 {
+  margin: 1.5rem 0 0.75rem;
+  color: #0f172a;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.detail-content p {
+  margin: 0 0 1rem;
+}
+
+.detail-content ul,
+.detail-content ol {
+  margin: 0 0 1rem 1.25rem;
+  padding: 0;
+}
+
+.detail-content li {
+  margin: 0.35rem 0;
+}
+
+.detail-content a {
+  color: #1275d1;
+  font-weight: 700;
+}

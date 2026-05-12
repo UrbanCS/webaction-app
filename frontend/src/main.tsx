@@ -29,6 +29,16 @@ type PushConfig = {
   vapidPublicKey: string;
 };
 
+type DetailResponse = {
+  ok: boolean;
+  detail?: {
+    title: string;
+    html: string;
+    image?: string;
+    url: string;
+  };
+};
+
 const tabs = [
   { id: 'home', label: 'Accueil' },
   { id: 'realisations', label: 'Réalisations' },
@@ -86,7 +96,7 @@ function App() {
 
   const realisations = data?.items.realisations ?? [];
   const watch = data?.items.watch ?? [];
-  const featured = useMemo(() => [...realisations.slice(0, 3), ...watch.slice(0, 2)], [realisations, watch]);
+  const featured = useMemo(() => realisations.slice(0, 6), [realisations]);
 
   async function enablePush() {
     setPushMessage('');
@@ -175,7 +185,7 @@ function App() {
         {loading && <State title="Chargement" body="Récupération des dernières informations..." />}
         {error && <State title="Erreur" body={error} action={reload} />}
         {!loading && !error && activeTab === 'home' && (
-          <ItemList items={featured} empty="Aucun contenu détecté." onSelect={setSelected} />
+          <ItemList items={featured} empty="Aucune réalisation récente détectée." onSelect={setSelected} />
         )}
         {!loading && !error && activeTab === 'realisations' && (
           <ItemList items={realisations} empty="Aucune réalisation détectée." onSelect={setSelected} />
@@ -207,18 +217,62 @@ function ItemList({ items, empty, onSelect }: { items: Item[]; empty: string; on
 }
 
 function Detail({ item, onBack }: { item: Item; onBack: () => void }) {
+  const [detailHtml, setDetailHtml] = useState('');
+  const [detailImage, setDetailImage] = useState(item.image || '');
+  const [detailTitle, setDetailTitle] = useState(item.title);
+  const [loading, setLoading] = useState(item.url.includes('webaction.ca'));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadDetail() {
+      if (!item.url.includes('webaction.ca')) {
+        return;
+      }
+      setLoading(true);
+      setError('');
+      try {
+        const response = await fetch(apiUrl(`detail.php?url=${encodeURIComponent(item.url)}`));
+        const payload: DetailResponse = await response.json();
+        if (!response.ok || !payload.ok || !payload.detail) throw new Error('detail');
+        if (!ignore) {
+          setDetailTitle(payload.detail.title || item.title);
+          setDetailHtml(payload.detail.html || '');
+          setDetailImage(payload.detail.image || item.image || '');
+        }
+      } catch {
+        if (!ignore) setError("Le détail complet n'a pas pu être chargé.");
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    }
+    loadDetail();
+    return () => {
+      ignore = true;
+    };
+  }, [item]);
+
   return (
     <main className="mx-auto min-h-screen max-w-md bg-white">
       <button onClick={onBack} className="m-4 rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800">
         Retour
       </button>
-      {item.image && <img src={item.image} alt="" className="h-56 w-full object-cover" />}
+      {detailImage && <img src={detailImage} alt="" className="h-56 w-full object-cover" />}
       <section className="px-5 py-5">
         <p className="text-xs font-bold uppercase tracking-wide text-webblue">{item.type === 'watch' ? 'À surveiller' : 'Réalisation'}</p>
-        <h1 className="mt-2 text-2xl font-bold text-slate-950">{item.title}</h1>
-        {item.excerpt && <p className="mt-4 text-base leading-7 text-slate-700">{item.excerpt}</p>}
+        <h1 className="mt-2 text-2xl font-bold text-slate-950">{detailTitle}</h1>
+        {loading && <p className="mt-4 text-sm text-slate-500">Chargement du détail...</p>}
+        {error && <p className="mt-4 text-sm text-slate-500">{error}</p>}
+        {detailHtml ? (
+          <div
+            className="detail-content mt-5 text-base leading-7 text-slate-700"
+            dangerouslySetInnerHTML={{ __html: detailHtml }}
+          />
+        ) : (
+          item.excerpt && <p className="mt-4 text-base leading-7 text-slate-700">{item.excerpt}</p>
+        )}
         <a href={item.url} className="mt-6 inline-flex rounded bg-ink px-4 py-3 text-sm font-semibold text-white">
-          Voir la source
+          Ouvrir sur le site
         </a>
       </section>
     </main>
