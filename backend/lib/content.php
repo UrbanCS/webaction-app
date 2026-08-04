@@ -7,15 +7,17 @@ require_once __DIR__ . '/bootstrap.php';
 function fetch_source(string $url): string
 {
     $scraper = app_config()['scraper'] ?? [];
+    $separator = strpos($url, '?') === false ? '?' : '&';
+    $requestUrl = $url . $separator . '_pwa_scan=' . rawurlencode((string) microtime(true));
     $context = stream_context_create([
         'http' => [
             'method' => 'GET',
             'timeout' => (int) ($scraper['timeout'] ?? 15),
-            'header' => "User-Agent: " . ($scraper['user_agent'] ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 WebactionPWA/1.0') . "\r\nAccept: text/html,application/xhtml+xml\r\n",
+            'header' => "User-Agent: " . ($scraper['user_agent'] ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36 WebactionPWA/1.0') . "\r\nAccept: text/html,application/xhtml+xml\r\nCache-Control: no-cache\r\nPragma: no-cache\r\n",
         ],
     ]);
 
-    $html = @file_get_contents($url, false, $context);
+    $html = @file_get_contents($requestUrl, false, $context);
     if (!is_string($html) || $html === '') {
         throw new RuntimeException("Unable to fetch source: {$url}");
     }
@@ -181,27 +183,66 @@ function slug_id(string $type, string $title, string $url): string
     return substr(hash('sha256', $type . '|' . strtolower($title) . '|' . $url), 0, 24);
 }
 
-function upsert_detected_item(array $item): string
+function ensure_content_tracking_schema(): void
 {
+    static $ready = false;
+    if ($ready) {
+        return;
+    }
+
     $pdo = db();
-    $select = $pdo->prepare('SELECT id, content_hash FROM detected_contents WHERE source_type = ? AND source_id = ? LIMIT 1');
+    $columns = [];
+    foreach ($pdo->query('SHOW COLUMNS FROM detected_contents') as $column) {
+        $columns[(string) $column['Field']] = true;
+    }
+
+    $changes = [];
+    if (!isset($columns['source_position'])) {
+        $changes[] = 'ADD COLUMN source_position SMALLINT UNSIGNED NOT NULL DEFAULT 65535 AFTER content_hash';
+    }
+    if (!isset($columns['active'])) {
+        $changes[] = 'ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1 AFTER source_position';
+    }
+    if ($changes) {
+        $pdo->exec('ALTER TABLE detected_contents ' . implode(', ', $changes));
+    }
+
+    $ready = true;
+}
+
+function mark_source_items_inactive(string $sourceType): void
+{
+    ensure_content_tracking_schema();
+    $stmt = db()->prepare('UPDATE detected_contents SET active = 0 WHERE source_type = ?');
+    $stmt->execute([$sourceType]);
+}
+
+function upsert_detected_item(array $item, int $sourcePosition = 0): string
+{
+    ensure_content_tracking_schema();
+    $pdo = db();
+    $select = $pdo->prepare('SELECT id, content_hash, active FROM detected_contents WHERE source_type = ? AND source_id = ? LIMIT 1');
     $select->execute([$item['type'], $item['source_id']]);
     $existing = $select->fetch();
 
     if (!$existing) {
-        $insert = $pdo->prepare('INSERT INTO detected_contents (source_type, source_id, title, excerpt, url, image_url, content_hash, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
-        $insert->execute([$item['type'], $item['source_id'], $item['title'], $item['excerpt'], $item['url'], $item['image'], $item['hash']]);
+        $insert = $pdo->prepare('INSERT INTO detected_contents (source_type, source_id, title, excerpt, url, image_url, content_hash, source_position, active, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())');
+        $insert->execute([$item['type'], $item['source_id'], $item['title'], $item['excerpt'], $item['url'], $item['image'], $item['hash'], $sourcePosition]);
         return 'created';
     }
 
-    $update = $pdo->prepare('UPDATE detected_contents SET title = ?, excerpt = ?, url = ?, image_url = ?, content_hash = ?, last_seen_at = NOW() WHERE id = ?');
-    $update->execute([$item['title'], $item['excerpt'], $item['url'], $item['image'], $item['hash'], $existing['id']]);
-    return !hash_equals((string) $existing['content_hash'], (string) $item['hash']) ? 'updated' : 'unchanged';
+    $update = $pdo->prepare('UPDATE detected_contents SET title = ?, excerpt = ?, url = ?, image_url = ?, content_hash = ?, source_position = ?, active = 1, last_seen_at = NOW() WHERE id = ?');
+    $update->execute([$item['title'], $item['excerpt'], $item['url'], $item['image'], $item['hash'], $sourcePosition, $existing['id']]);
+    if (!hash_equals((string) $existing['content_hash'], (string) $item['hash'])) {
+        return 'updated';
+    }
+    return (int) $existing['active'] === 0 ? 'reactivated' : 'unchanged';
 }
 
 function latest_items(): array
 {
-    $stmt = db()->query("SELECT source_type, source_id, title, excerpt, url, image_url, content_hash, last_seen_at FROM detected_contents ORDER BY first_seen_at DESC, id DESC LIMIT 80");
+    ensure_content_tracking_schema();
+    $stmt = db()->query("SELECT source_type, source_id, title, excerpt, url, image_url, content_hash, last_seen_at FROM detected_contents WHERE active = 1 ORDER BY source_type ASC, source_position ASC, id ASC");
     $groups = ['realisations' => [], 'watch' => []];
     $allRealisations = [];
     $allWatch = [];
@@ -223,7 +264,9 @@ function latest_items(): array
             $allWatch[] = $item;
         }
     }
-    $groups['realisations'] = array_slice(array_reverse($allRealisations), 0, 24);
-    $groups['watch'] = array_slice(array_reverse($allWatch), 0, 12);
+    $maxRealisations = (int) (app_config()['scraper']['max_realisations'] ?? 24);
+    $maxWatch = (int) (app_config()['scraper']['max_watch'] ?? 12);
+    $groups['realisations'] = array_slice($allRealisations, 0, $maxRealisations);
+    $groups['watch'] = array_slice($allWatch, 0, $maxWatch);
     return $groups;
 }

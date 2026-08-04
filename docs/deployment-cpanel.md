@@ -73,6 +73,8 @@ php /home/USER/public_html/app/cron/check-updates.php
 
 La première exécution remplit la table `detected_contents` sans envoyer de notifications.
 
+Lors d'une mise à jour depuis une ancienne version, le cron ajoute automatiquement les colonnes `source_position` et `active` à `detected_contents`. L'utilisateur MySQL doit conserver le droit `ALTER`, inclus dans « tous les droits » de cPanel.
+
 ## 7. Configurer le cron cPanel
 
 Dans cPanel > Cron Jobs:

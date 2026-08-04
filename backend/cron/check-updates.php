@@ -20,21 +20,44 @@ try {
     $sources = app_config()['sources'];
     $homeHtml = fetch_source($sources['home']);
     $watchHtml = fetch_source($sources['watch']);
-    $items = array_merge(extract_realisations($homeHtml), extract_watch_items($watchHtml));
+    $itemsByType = [
+        'realisation' => extract_realisations($homeHtml),
+        'watch' => extract_watch_items($watchHtml),
+    ];
+    if (!$itemsByType['realisation'] || !$itemsByType['watch']) {
+        throw new RuntimeException('A source returned no items. Existing content was preserved.');
+    }
+    $items = array_merge($itemsByType['realisation'], $itemsByType['watch']);
     $newItems = [];
+    $changeCounts = ['created' => 0, 'updated' => 0, 'reactivated' => 0, 'unchanged' => 0];
     $isFirstRun = ((int) db()->query('SELECT COUNT(*) FROM detected_contents')->fetchColumn()) === 0;
     $initialTypeCounts = [
         'realisation' => (int) db()->query("SELECT COUNT(*) FROM detected_contents WHERE source_type = 'realisation'")->fetchColumn(),
         'watch' => (int) db()->query("SELECT COUNT(*) FROM detected_contents WHERE source_type = 'watch'")->fetchColumn(),
     ];
 
-    foreach ($items as $item) {
-        $changeType = upsert_detected_item($item);
-        if ($changeType === 'created') {
-            $newItems[] = $item;
-        } elseif ($changeType === 'updated') {
-            cron_log('Updated existing ' . $item['type'] . ': ' . $item['title'] . '. No notification sent.');
+    ensure_content_tracking_schema();
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        foreach ($itemsByType as $sourceType => $sourceItems) {
+            mark_source_items_inactive($sourceType);
+            foreach ($sourceItems as $position => $item) {
+                $changeType = upsert_detected_item($item, $position);
+                $changeCounts[$changeType]++;
+                if ($changeType === 'created') {
+                    $newItems[] = $item;
+                } elseif ($changeType === 'updated') {
+                    cron_log('Updated existing ' . $item['type'] . ': ' . $item['title'] . '. No notification sent.');
+                }
+            }
         }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
     }
 
     if ($isFirstRun) {
@@ -42,17 +65,30 @@ try {
         exit(0);
     }
 
+    $notificationItems = ['realisation' => [], 'watch' => []];
     foreach ($newItems as $item) {
         if (($initialTypeCounts[$item['type']] ?? 0) === 0) {
             cron_log('Initial seed for ' . $item['type'] . ': ' . $item['title'] . '. No notification sent.');
             continue;
         }
-        $label = $item['type'] === 'watch' ? 'À surveiller' : 'Nouvelle réalisation';
-        $result = send_push_to_all($label . ' Webaction', $item['title'], $item['url']);
-        cron_log($label . ': ' . $item['title'] . ' | sent=' . ($result['sent'] ?? 0));
+        $notificationItems[$item['type']][] = $item;
     }
 
-    cron_log('Done. Parsed=' . count($items) . ' changed_or_new=' . count($newItems));
+    foreach ($notificationItems as $sourceType => $sourceItems) {
+        if (!$sourceItems) {
+            continue;
+        }
+        $count = count($sourceItems);
+        $label = $sourceType === 'watch' ? 'À surveiller' : 'Nouvelle réalisation';
+        $body = $count === 1
+            ? $sourceItems[0]['title']
+            : ($sourceType === 'watch' ? $count . ' nouvelles informations à surveiller' : $count . ' nouvelles réalisations');
+        $url = $count === 1 ? $sourceItems[0]['url'] : (app_config()['app_url'] ?? '');
+        $result = send_push_to_all($label . ' Webaction', $body, $url);
+        cron_log($label . ': ' . $body . ' | sent=' . ($result['sent'] ?? 0) . ' failed=' . ($result['failed'] ?? 0));
+    }
+
+    cron_log('Done. Parsed=' . count($items) . ' created=' . $changeCounts['created'] . ' updated=' . $changeCounts['updated'] . ' reactivated=' . $changeCounts['reactivated']);
 } catch (Throwable $e) {
     cron_log('Error: ' . $e->getMessage());
     try {

@@ -22,11 +22,14 @@ CREATE TABLE IF NOT EXISTS detected_contents (
   url TEXT NULL,
   image_url TEXT NULL,
   content_hash CHAR(64) NOT NULL,
+  source_position SMALLINT UNSIGNED NOT NULL DEFAULT 65535,
+  active TINYINT(1) NOT NULL DEFAULT 1,
   first_seen_at DATETIME NOT NULL,
   last_seen_at DATETIME NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uniq_source (source_type, source_id),
-  KEY idx_type_seen (source_type, first_seen_at)
+  KEY idx_type_seen (source_type, first_seen_at),
+  KEY idx_current_order (source_type, active, source_position)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS notification_logs (

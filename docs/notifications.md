@@ -6,6 +6,8 @@ Le navigateur crée un abonnement Push après une action utilisateur sur le bout
 
 Quand `cron/check-updates.php` détecte un nouveau contenu, il appelle `send_push_to_all()`, qui utilise `minishlink/web-push` et les clés VAPID privées côté serveur.
 
+Au démarrage, la PWA renvoie aussi son abonnement existant à `api/subscribe.php`. Cela réactive automatiquement un abonnement valide qui aurait été désactivé côté serveur.
+
 ## Générer les clés VAPID
 
 Avec Composer:
@@ -40,6 +42,10 @@ curl -X POST https://webaction.ca/app/api/notify-test.php \
 ## Notes iPhone/iOS
 
 Les notifications Web Push sur iPhone exigent iOS 16.4 ou plus récent et la PWA doit être ajoutée à l'écran d'accueil avant de demander les notifications.
+
+## Diagnostic protégé
+
+`api/health.php?secret=NOTIFY_SECRET` retourne le nombre d'abonnements actifs, le nombre de contenus actifs par type et les dix derniers résultats d'envoi. Cet endpoint ne déclenche aucune notification.
 
 ## Sécurité
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webaction-pwa-v6';
+const CACHE_NAME = 'webaction-pwa-v7';
 const APP_SHELL = [
   './',
   './index.html',
@@ -42,6 +42,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const isContentImage = event.request.destination === 'image' && !url.pathname.startsWith('/app/');
+  if (isContentImage) {
+    event.respondWith(
+      fetch(event.request, { cache: 'reload' })
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -61,8 +77,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Webaction';
   const options = {
     body: data.body || 'Nouvelle mise à jour disponible.',
-    icon: './icon.svg',
-    badge: './icon.svg',
+    icon: './icon-192.png',
+    badge: './icon-192.png',
     data: { url: data.url || './' }
   };
   event.waitUntil(self.registration.showNotification(title, options));

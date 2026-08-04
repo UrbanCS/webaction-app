@@ -26,7 +26,7 @@ Notifications:
 
 - `subscribe.php` stocke les abonnements Push dans MySQL.
 - `notify-test.php` permet un test protégé par secret.
-- `cron/check-updates.php` envoie une notification quand un item nouveau ou modifié est détecté.
+- `cron/check-updates.php` envoie une notification quand un nouvel item est détecté. Une modification d'un item existant met l'app à jour sans notification.
 - L'envoi utilise `minishlink/web-push`, installé via Composer ou uploadé avec `vendor/`.
 - Les clés VAPID se génèrent avec `php backend/tools/generate-vapid-keys.php`, ou avec `npx web-push generate-vapid-keys` si OpenSSL bloque sur Windows.
 

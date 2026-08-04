@@ -53,11 +53,27 @@ function apiUrl(path: string) {
   return `./api/${path}`;
 }
 
+function versionedImageUrl(item: Item) {
+  if (!item.image) return '';
+  const url = new URL(item.image, window.location.href);
+  url.searchParams.set('pwa_v', item.hash || item.detected_at || 'current');
+  return url.toString();
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function savePushSubscription(subscription: PushSubscription) {
+  const response = await fetch(apiUrl('subscribe.php'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscription)
+  });
+  if (!response.ok) throw new Error('subscribe failed');
 }
 
 function useLatest() {
@@ -81,6 +97,16 @@ function useLatest() {
 
   useEffect(() => {
     load();
+
+    const refreshVisibleApp = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    window.addEventListener('focus', refreshVisibleApp);
+    document.addEventListener('visibilitychange', refreshVisibleApp);
+    return () => {
+      window.removeEventListener('focus', refreshVisibleApp);
+      document.removeEventListener('visibilitychange', refreshVisibleApp);
+    };
   }, []);
 
   return { data, error, loading, reload: load };
@@ -100,7 +126,13 @@ function App() {
       navigator.serviceWorker.register('./sw.js').catch(() => undefined);
       navigator.serviceWorker.ready
         .then((registration) => registration.pushManager.getSubscription())
-        .then((subscription) => setPushEnabled(Boolean(subscription)))
+        .then(async (subscription) => {
+          const enabled = Boolean(subscription) && 'Notification' in window && Notification.permission === 'granted';
+          setPushEnabled(enabled);
+          if (enabled && subscription) {
+            await savePushSubscription(subscription);
+          }
+        })
         .catch(() => undefined);
     }
   }, []);
@@ -152,12 +184,7 @@ function App() {
         applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey)
       });
 
-      const response = await fetch(apiUrl('subscribe.php'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(subscription)
-      });
-      if (!response.ok) throw new Error('subscribe failed');
+      await savePushSubscription(subscription);
       setPushEnabled(true);
       setPushMessage('Notifications activées.');
     } catch {
@@ -302,7 +329,7 @@ function ItemList({ items, empty, onSelect }: { items: Item[]; empty: string; on
     <div className="space-y-4">
       {items.map((item) => (
         <button key={`${item.type}-${item.id}`} onClick={() => onSelect(item)} className="w-full overflow-hidden rounded border border-slate-200 bg-white text-left shadow-sm">
-          {item.image && <img src={item.image} alt="" className="h-40 w-full object-cover" loading="lazy" />}
+          {item.image && <img src={versionedImageUrl(item)} alt="" className="h-40 w-full object-cover" loading="lazy" />}
           <span className="block p-4">
             <span className="text-xs font-bold uppercase tracking-wide text-webblue">{item.type === 'watch' ? 'À surveiller' : 'Réalisation'}</span>
             <span className="mt-1 block text-lg font-bold text-slate-950">{item.title}</span>
