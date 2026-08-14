@@ -141,22 +141,24 @@ iPhone/iPad:
 Test serveur, en utilisant le secret live sans le recopier dans le chat:
 
 ```bash
-curl -X POST "https://webaction.ca/app/api/notify-test.php?secret=VALEUR_DU_CONFIG_LIVE"
+curl -X POST "https://webaction.ca/app/api/notify-test.php" \
+  -H "X-Notify-Secret: VALEUR_DU_CONFIG_LIVE"
 ```
 
 Une validation précédente a retourné des envois réussis et une notification a bien été reçue sur téléphone.
 
-Diagnostic protégé sans envoi:
+Diagnostic protégé sans envoi (préférer l'en-tête au paramètre d'URL pour éviter de journaliser le secret):
 
-```text
-https://webaction.ca/app/api/health.php?secret=VALEUR_DU_CONFIG_LIVE
+```bash
+curl "https://webaction.ca/app/api/health.php" \
+  -H "X-Notify-Secret: VALEUR_DU_CONFIG_LIVE"
 ```
 
 Il retourne notamment le nombre d'abonnements actifs, les contenus actifs par type et les dix derniers résultats d'envoi.
 
 ## 7. Cache et rafraîchissement
 
-Le service worker actuel est `webaction-pwa-v7`.
+Le service worker actuellement déployé est `webaction-pwa-v7`.
 
 Corrections déjà en place:
 
@@ -211,8 +213,8 @@ GET  /app/api/detail.php?url=...
 GET  /app/api/config-public.php
 POST /app/api/subscribe.php
 POST /app/api/unsubscribe.php
-POST /app/api/notify-test.php?secret=...
-GET  /app/api/health.php?secret=...
+POST /app/api/notify-test.php  (en-tête `X-Notify-Secret`)
+GET  /app/api/health.php       (en-tête `X-Notify-Secret`)
 ```
 
 `notify-test.php` exige POST. Un appel direct dans la barre d'adresse retourne donc « Method not allowed ».
@@ -275,8 +277,20 @@ Vérification live effectuée:
 - `https://webaction.ca/app/api/latest.php` répond `ok: true`;
 - le cron avait mis les contenus à jour à 00:30 le 14 août 2026;
 - les premières réalisations retournées étaient « CUISINE ESSENTIELLE KITCHEN », « Canton de Champlain Township » et « Maison funéraire McConnery » dans le bon ordre;
-- le commit courant est `c865eb3 Update notification and content flows`;
-- seul `.vscode/settings.json` est actuellement modifié dans le worktree et cette modification appartient à l'utilisateur.
+- le commit fonctionnel de référence est `c865eb3 Update notification and content flows`;
+- `76bee6a Add Codex handoff notes` est le HEAD public qui contient cette passation;
+- une copie locale sans métadonnées Git a été rattachée sans modifier ses fichiers à `origin/main` le 14 août 2026; son contenu correspondait alors exactement à `76bee6a`.
+
+Travail de continuation entrepris après cette vérification:
+
+- assainissement DOM à liste blanche pour le HTML de détail, avec test de régression;
+- ajout du fichier sans secrets `backend/config/config.example.php`, qui était annoncé dans la documentation mais absent du dépôt;
+- chaîne de build mise à jour vers Vite 8.2.1 et `@vitejs/plugin-react` 6.0.5;
+- documentation alignée sur PHP 7.4, les deux onglets actuels et l'authentification du diagnostic par en-tête;
+- `backend/lib/content.php` a été déployé dans `domains/webaction.ca/public_html/app/lib/content.php` le 14 août 2026;
+- l'ancienne version live est sauvegardée hors du dossier public dans `/user_backups/content.php`;
+- après déploiement, `latest.php` et `detail.php` répondaient `200`, avec 24 réalisations, 6 éléments À surveiller et aucun motif HTML dangereux détecté dans le détail testé;
+- les changements de chaîne de build, tests, exemple de configuration et documentation restent des changements de dépôt et ne nécessitent pas de déploiement immédiat.
 
 ## 13. Sécurité et actions à ne pas oublier
 
@@ -298,4 +312,3 @@ Travaille dans /mnt/c/Users/marca/OneDrive/Desktop/webaction-app.
 Lis CODEX_HANDOFF.md, puis vérifie git status et les endpoints live avant de modifier quoi que ce soit.
 Poursuis le projet Webaction PWA en respectant l'état et les contraintes décrits dans la passation.
 ```
-

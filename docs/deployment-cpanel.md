@@ -38,9 +38,11 @@ Si Composer n'est pas disponible sur cPanel, exécuter cette commande localement
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run build
 ```
+
+Le build local exige Node.js 20.19 ou plus récent, ou Node.js 22.12 ou plus récent. Node.js n'est pas requis sur le serveur de production.
 
 Uploader le contenu de `frontend/dist` dans `public_html/app`.
 

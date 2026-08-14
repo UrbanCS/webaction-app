@@ -45,7 +45,12 @@ Les notifications Web Push sur iPhone exigent iOS 16.4 ou plus récent et la PWA
 
 ## Diagnostic protégé
 
-`api/health.php?secret=NOTIFY_SECRET` retourne le nombre d'abonnements actifs, le nombre de contenus actifs par type et les dix derniers résultats d'envoi. Cet endpoint ne déclenche aucune notification.
+`api/health.php` retourne le nombre d'abonnements actifs, le nombre de contenus actifs par type et les dix derniers résultats d'envoi. Cet endpoint ne déclenche aucune notification. Envoyer le secret dans l'en-tête `X-Notify-Secret` afin d'éviter qu'il apparaisse dans l'URL et les journaux HTTP:
+
+```bash
+curl https://webaction.ca/app/api/health.php \
+  -H "X-Notify-Secret: CHANGE_ME_LONG_RANDOM_SECRET"
+```
 
 ## Sécurité
 
