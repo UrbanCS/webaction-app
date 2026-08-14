@@ -12,7 +12,7 @@
 
 ## 2. Architecture choisie
 
-Architecture finale: PWA statique React + TypeScript + Tailwind dans `public_html/app`, backend PHP 8 + MySQL dans `public_html/app/api`, et cron PHP cPanel pour détecter les nouveautés.
+Architecture finale: PWA statique React + TypeScript + Tailwind dans `public_html/app`, backend compatible PHP 7.4.33 + MySQL dans `public_html/app/api`, et cron PHP cPanel pour détecter les nouveautés.
 
 Pourquoi c'est le plus simple:
 
@@ -39,7 +39,7 @@ Limites:
 ## 3. Plan MVP
 
 - PWA installable avec `manifest.webmanifest`, icône et service worker.
-- Interface mobile-first avec Accueil, Réalisations, À surveiller et Détail.
+- Interface mobile-first avec Réalisations, À surveiller et Détail.
 - Boutons "Nous joindre" et "Site complet".
 - États loading, vide et erreur.
 - API PHP: `subscribe.php`, `unsubscribe.php`, `latest.php`, `notify-test.php`, `config-public.php`.
@@ -72,6 +72,8 @@ frontend/
 backend/
   api/
     config-public.php
+    detail.php
+    health.php
     latest.php
     notify-test.php
     subscribe.php
@@ -88,6 +90,8 @@ backend/
     schema.sql
   tools/
     generate-vapid-keys.php
+  tests/
+    sanitize-detail-html.php
   composer.json
 joomla-plugin/
   README.md
@@ -120,7 +124,7 @@ Résumé:
 2. Copier `backend/config/config.example.php` en `backend/config/config.php`.
 3. Remplir DB, `notify_secret`, `app_url` et clés VAPID.
 4. Installer Composer localement ou uploader `backend/vendor`.
-5. Builder `frontend` avec `npm run build`.
+5. Installer et builder `frontend` avec `npm ci` puis `npm run build` (Node 20.19+ ou 22.12+).
 6. Uploader `frontend/dist` et le backend dans `public_html/app`.
 7. Lancer le cron une première fois.
 8. Ajouter le Cron Job cPanel toutes les 10 ou 15 minutes.
@@ -134,7 +138,7 @@ Le frontend ne reçoit que la clé publique VAPID via `api/config-public.php`. L
 ## 9. Checklist de test
 
 - Ouvrir `https://webaction.ca/app/` sous HTTPS.
-- Vérifier que l'app affiche Accueil, Réalisations et À surveiller.
+- Vérifier que l'app affiche les onglets Réalisations et À surveiller.
 - Dans DevTools > Application, vérifier le manifest et le service worker.
 - Installer l'app avec "Ajouter à l'écran d'accueil".
 - Activer les notifications avec le bouton.
@@ -143,3 +147,14 @@ Le frontend ne reçoit que la clé publique VAPID via `api/config-public.php`. L
 - Lancer `cron/check-updates.php` en CLI.
 - Vérifier que `detected_contents` est alimentée.
 - Vérifier que `notification_logs` journalise les envois, erreurs ou skips.
+
+## 10. Vérifications locales
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run build
+php backend/tests/sanitize-detail-html.php
+php backend/tests/config-example.php
+```
+
+Les tests PHP vérifient notamment que le HTML détaillé retire les scripts, attributs d'événement et URL dangereuses avant son affichage dans React, et que l'exemple de configuration demeure complet et sans secret réel.

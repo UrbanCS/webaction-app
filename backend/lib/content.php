@@ -150,19 +150,154 @@ function inner_html(DOMNode $node): string
 
 function sanitize_detail_html(string $html): string
 {
-    $html = preg_replace('#<(script|style|iframe|object|embed|form|input|button)\b[^>]*>.*?</\1>#is', '', $html) ?? $html;
-    $html = preg_replace('#</?(div|span|section|article)[^>]*>#i', '', $html) ?? $html;
-    $html = preg_replace('/\s(on[a-z]+|style|class|id|data-[a-z0-9_-]+)="[^"]*"/i', '', $html) ?? $html;
-    $html = preg_replace("/\s(on[a-z]+|style|class|id|data-[a-z0-9_-]+)='[^']*'/i", '', $html) ?? $html;
-    $html = preg_replace_callback('/\s(href|src)="([^"]*)"/i', function (array $matches): string {
-        $url = html_entity_decode($matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        if (strpos($url, 'javascript:') === 0 || strpos($url, 'data:') === 0) {
-            return '';
-        }
-        return ' ' . strtolower($matches[1]) . '="' . htmlspecialchars(absolute_url($url), ENT_QUOTES, 'UTF-8') . '"';
-    }, $html) ?? $html;
+    libxml_use_internal_errors(true);
+    $dom = new DOMDocument();
+    $loaded = $dom->loadHTML(
+        '<?xml encoding="utf-8" ?><!DOCTYPE html><html><body><div id="pwa-detail-root">' . $html . '</div></body></html>'
+    );
+    libxml_clear_errors();
 
-    return trim($html);
+    if (!$loaded) {
+        return '';
+    }
+
+    $xpath = new DOMXPath($dom);
+    $root = $xpath->query("//*[@id='pwa-detail-root']")->item(0);
+    if (!$root instanceof DOMElement) {
+        return '';
+    }
+
+    sanitize_detail_node($root);
+    return trim(inner_html($root));
+}
+
+function sanitize_detail_node(DOMNode $parent): void
+{
+    $allowedTags = [
+        'a', 'b', 'blockquote', 'br', 'em', 'figcaption', 'figure', 'h1', 'h2', 'h3',
+        'h4', 'h5', 'h6', 'hr', 'i', 'img', 'li', 'ol', 'p', 'small', 'strong',
+        'sub', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul',
+    ];
+    $discardTags = [
+        'audio', 'base', 'button', 'canvas', 'embed', 'form', 'iframe', 'input', 'link',
+        'math', 'meta', 'noscript', 'object', 'option', 'script', 'select', 'source',
+        'style', 'svg', 'template', 'textarea', 'track', 'video',
+    ];
+    $children = [];
+
+    foreach ($parent->childNodes as $child) {
+        $children[] = $child;
+    }
+
+    foreach ($children as $child) {
+        if ($child instanceof DOMComment) {
+            $parent->removeChild($child);
+            continue;
+        }
+        if (!$child instanceof DOMElement) {
+            continue;
+        }
+
+        $tag = strtolower($child->tagName);
+        if (in_array($tag, $discardTags, true)) {
+            $parent->removeChild($child);
+            continue;
+        }
+
+        sanitize_detail_node($child);
+        if (!in_array($tag, $allowedTags, true)) {
+            unwrap_detail_element($child);
+            continue;
+        }
+
+        sanitize_detail_attributes($child, $tag);
+    }
+}
+
+function unwrap_detail_element(DOMElement $element): void
+{
+    $parent = $element->parentNode;
+    if (!$parent) {
+        return;
+    }
+
+    while ($element->firstChild) {
+        $parent->insertBefore($element->firstChild, $element);
+    }
+    $parent->removeChild($element);
+}
+
+function sanitize_detail_attributes(DOMElement $element, string $tag): void
+{
+    $allowedAttributes = [];
+    if ($tag === 'a') {
+        $allowedAttributes = ['href', 'title'];
+    } elseif ($tag === 'img') {
+        $allowedAttributes = ['alt', 'src', 'title'];
+    } elseif ($tag === 'td' || $tag === 'th') {
+        $allowedAttributes = ['colspan', 'rowspan'];
+    } elseif ($tag === 'ol') {
+        $allowedAttributes = ['start'];
+    }
+
+    $attributeNames = [];
+    foreach ($element->attributes as $attribute) {
+        $attributeNames[] = $attribute->name;
+    }
+
+    foreach ($attributeNames as $attributeName) {
+        $normalizedName = strtolower($attributeName);
+        if (!in_array($normalizedName, $allowedAttributes, true)) {
+            $element->removeAttribute($attributeName);
+        }
+    }
+
+    foreach (['href', 'src'] as $urlAttribute) {
+        if (!$element->hasAttribute($urlAttribute)) {
+            continue;
+        }
+        $safeUrl = sanitize_detail_url($element->getAttribute($urlAttribute), $urlAttribute === 'href');
+        if ($safeUrl === '') {
+            $element->removeAttribute($urlAttribute);
+        } else {
+            $element->setAttribute($urlAttribute, $safeUrl);
+        }
+    }
+
+    foreach (['colspan', 'rowspan', 'start'] as $numericAttribute) {
+        if ($element->hasAttribute($numericAttribute)
+            && !preg_match('/^\d{1,3}$/', $element->getAttribute($numericAttribute))) {
+            $element->removeAttribute($numericAttribute);
+        }
+    }
+}
+
+function sanitize_detail_url(string $url, bool $allowContactLinks): string
+{
+    $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    $url = preg_replace('/[\x00-\x20\x7f]+/', '', $url) ?? '';
+    if ($url === '') {
+        return '';
+    }
+    if ($allowContactLinks && strpos($url, '#') === 0) {
+        return $url;
+    }
+    if (strpos($url, '//') === 0) {
+        $url = 'https:' . $url;
+    }
+
+    $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+    if ($scheme !== '') {
+        if ($scheme === 'http' || $scheme === 'https') {
+            return filter_var($url, FILTER_VALIDATE_URL) ? $url : '';
+        }
+        if ($allowContactLinks && ($scheme === 'mailto' || $scheme === 'tel')) {
+            return $url;
+        }
+        return '';
+    }
+
+    return absolute_url($url);
 }
 
 function normalize_item(array $item): array
