@@ -11,7 +11,10 @@ function app_config(): array
         return $config;
     }
 
-    $path = __DIR__ . '/../config/config.php';
+    $configuredPath = getenv('WEBACTION_CONFIG_PATH');
+    $path = is_string($configuredPath) && trim($configuredPath) !== ''
+        ? $configuredPath
+        : __DIR__ . '/../config/config.php';
     if (!is_file($path)) {
         http_response_code(500);
         header('Content-Type: application/json; charset=utf-8');

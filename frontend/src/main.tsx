@@ -237,10 +237,10 @@ function App() {
           Une app légère pour suivre les derniers projets et les informations à surveiller.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <a className="rounded bg-webblue px-4 py-3 text-center text-sm font-semibold text-white" href="https://webaction.ca/fr/nous-joindre">
+          <a className="rounded bg-webblue px-4 py-3 text-center text-sm font-semibold text-white" href="https://webaction.ca/index.php/fr/nous-joindre">
             Nous joindre
           </a>
-          <a className="rounded border border-white/20 px-4 py-3 text-center text-sm font-semibold text-white" href="https://webaction.ca/fr/">
+          <a className="rounded border border-white/20 px-4 py-3 text-center text-sm font-semibold text-white" href="https://webaction.ca/index.php/fr/">
             Site complet
           </a>
         </div>

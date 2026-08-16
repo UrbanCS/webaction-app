@@ -17,6 +17,10 @@ function cron_log(string $message): void
 }
 
 try {
+    $suppressNotifications = filter_var(
+        getenv('WEBACTION_SUPPRESS_NOTIFICATIONS') ?: 'false',
+        FILTER_VALIDATE_BOOLEAN
+    );
     $sources = app_config()['sources'];
     $homeHtml = fetch_source($sources['home']);
     $watchHtml = fetch_source($sources['watch']);
@@ -62,6 +66,11 @@ try {
 
     if ($isFirstRun) {
         cron_log('Initial seed complete. Parsed=' . count($items) . '. No notifications sent on first run.');
+        exit(0);
+    }
+
+    if ($suppressNotifications) {
+        cron_log('Silent migration complete. Parsed=' . count($items) . ' created=' . $changeCounts['created'] . ' updated=' . $changeCounts['updated'] . '. No notifications sent.');
         exit(0);
     }
 

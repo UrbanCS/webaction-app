@@ -38,6 +38,7 @@ function extract_realisations(string $html): array
     $xpath = dom_xpath($html);
     $max = (int) ((app_config()['scraper']['max_realisations'] ?? 24));
     $items = [];
+    $seenUrls = [];
     $nodes = $xpath->query("//*[@id='portfolio']//a[contains(concat(' ', normalize-space(@class), ' '), ' el-item ')]");
 
     foreach ($nodes as $node) {
@@ -64,8 +65,52 @@ function extract_realisations(string $html): array
             'title' => $title,
             'excerpt' => $metaNode ? normalize_text($metaNode->textContent) : '',
             'url' => absolute_url($url),
-            'image' => absolute_url($image),
+            'image' => absolute_url(clean_image_url($image)),
         ]);
+        $seenUrls[absolute_url($url)] = true;
+    }
+
+    // Current Joomla/SP Page Builder portfolio cards (August 2026).
+    $nodes = $xpath->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' uk-panel ')][.//a[contains(@href, '/portfolio-webaction/')]]");
+    foreach ($nodes as $node) {
+        if (count($items) >= $max) {
+            break;
+        }
+
+        $linkNode = $xpath->query(".//a[contains(@href, '/portfolio-webaction/')][1]", $node)->item(0);
+        if (!$linkNode instanceof DOMElement) {
+            continue;
+        }
+        $url = absolute_url($linkNode->getAttribute('href'));
+        if ($url === '' || isset($seenUrls[$url])) {
+            continue;
+        }
+
+        $titleNode = $xpath->query(".//*[contains(concat(' ', normalize-space(@class), ' '), ' uk-h2 ')][1]", $node)->item(0);
+        $imageNode = $xpath->query('.//img[1]', $node)->item(0);
+        $title = $titleNode ? normalize_text($titleNode->textContent) : '';
+        if ($title === '' && $imageNode instanceof DOMElement) {
+            $title = normalize_text($imageNode->getAttribute('alt'));
+        }
+        if ($title === '') {
+            continue;
+        }
+
+        $metaNode = $xpath->query(".//*[contains(concat(' ', normalize-space(@class), ' '), ' uk-overlay ')]//h1[1]", $node)->item(0);
+        $image = '';
+        if ($imageNode instanceof DOMElement) {
+            $image = $imageNode->getAttribute('data-src') ?: $imageNode->getAttribute('src');
+        }
+
+        $items[] = normalize_item([
+            'type' => 'realisation',
+            'source_id' => stable_source_id('realisation', $url),
+            'title' => $title,
+            'excerpt' => $metaNode ? normalize_text($metaNode->textContent) : '',
+            'url' => $url,
+            'image' => absolute_url(clean_image_url($image)),
+        ]);
+        $seenUrls[$url] = true;
     }
     return $items;
 }
@@ -75,6 +120,7 @@ function extract_watch_items(string $html): array
     $xpath = dom_xpath($html);
     $max = (int) ((app_config()['scraper']['max_watch'] ?? 12));
     $items = [];
+    $seenUrls = [];
     $nodes = $xpath->query("//article[contains(concat(' ', normalize-space(@class), ' '), ' uk-article ')]");
 
     foreach ($nodes as $node) {
@@ -99,8 +145,47 @@ function extract_watch_items(string $html): array
             'title' => $title,
             'excerpt' => $textNode ? normalize_text($textNode->textContent) : '',
             'url' => absolute_url($url),
-            'image' => absolute_url($image),
+            'image' => absolute_url(clean_image_url($image)),
         ]);
+        $seenUrls[absolute_url($url)] = true;
+    }
+
+    // Current Joomla/SP Page Builder article cards (August 2026).
+    $nodes = $xpath->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' sppb-addon-article ')][.//a[contains(@href, '/blogue/')]]");
+    foreach ($nodes as $node) {
+        if (count($items) >= $max) {
+            break;
+        }
+
+        $linkNode = $xpath->query(".//*[contains(concat(' ', normalize-space(@class), ' '), ' sppb-article-info-wrap ')]//h3//a[contains(@href, '/blogue/')][1]", $node)->item(0);
+        if (!$linkNode instanceof DOMElement) {
+            continue;
+        }
+        $url = absolute_url($linkNode->getAttribute('href'));
+        if ($url === '' || isset($seenUrls[$url])) {
+            continue;
+        }
+
+        $title = normalize_text($linkNode->textContent);
+        if ($title === '') {
+            continue;
+        }
+        $textNode = $xpath->query(".//*[contains(concat(' ', normalize-space(@class), ' '), ' sppb-article-introtext ')][1]", $node)->item(0);
+        $imageNode = $xpath->query(".//a[contains(concat(' ', normalize-space(@class), ' '), ' sppb-article-img-wrap ')]//img[1]", $node)->item(0);
+        $image = '';
+        if ($imageNode instanceof DOMElement) {
+            $image = $imageNode->getAttribute('data-src') ?: $imageNode->getAttribute('src');
+        }
+
+        $items[] = normalize_item([
+            'type' => 'watch',
+            'source_id' => stable_source_id('watch', $url),
+            'title' => $title,
+            'excerpt' => $textNode ? normalize_text($textNode->textContent) : '',
+            'url' => $url,
+            'image' => absolute_url(clean_image_url($image)),
+        ]);
+        $seenUrls[$url] = true;
     }
     return $items;
 }
@@ -115,11 +200,15 @@ function extract_detail_from_url(string $url): array
         throw new RuntimeException('Only Webaction detail pages can be fetched.');
     }
 
-    $html = fetch_source($url);
+    return extract_detail_from_html(fetch_source($url), $url);
+}
+
+function extract_detail_from_html(string $html, string $url): array
+{
     $xpath = dom_xpath($html);
-    $titleNode = $xpath->query("//*[@property='headline']")->item(0);
-    $contentNode = $xpath->query("//*[@property='text']")->item(0);
-    $imageNode = $xpath->query("//*[@property='image']//img|//article//img")->item(0);
+    $titleNode = $xpath->query("//*[@property='headline' or @itemprop='headline']")->item(0);
+    $contentNode = $xpath->query("//*[@property='text' or @itemprop='articleBody']")->item(0);
+    $imageNode = $xpath->query("//*[@property='image']//img|//*[@itemprop='image'][self::img]|//*[@itemprop='image']//img|//article//img")->item(0);
 
     $detailHtml = '';
     if ($contentNode instanceof DOMNode) {
@@ -134,9 +223,15 @@ function extract_detail_from_url(string $url): array
     return [
         'title' => $titleNode ? normalize_text($titleNode->textContent) : '',
         'html' => $detailHtml,
-        'image' => absolute_url($image),
+        'image' => absolute_url(clean_image_url($image)),
         'url' => $url,
     ];
+}
+
+function clean_image_url(string $url): string
+{
+    $markerPosition = strpos($url, '#joomlaImage:');
+    return $markerPosition === false ? $url : substr($url, 0, $markerPosition);
 }
 
 function inner_html(DOMNode $node): string
@@ -316,6 +411,11 @@ function normalize_item(array $item): array
 function slug_id(string $type, string $title, string $url): string
 {
     return substr(hash('sha256', $type . '|' . strtolower($title) . '|' . $url), 0, 24);
+}
+
+function stable_source_id(string $type, string $url): string
+{
+    return substr(hash('sha256', $type . '|' . strtolower($url)), 0, 24);
 }
 
 function ensure_content_tracking_schema(): void

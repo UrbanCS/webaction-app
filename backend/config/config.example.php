@@ -15,8 +15,8 @@ return [
     'site_url' => 'https://webaction.ca',
     'app_url' => 'https://webaction.ca/app',
     'sources' => [
-        'home' => 'https://webaction.ca/fr/',
-        'watch' => 'https://webaction.ca/fr/apropos/offres-d-emploi',
+        'home' => 'https://webaction.ca/index.php/fr/',
+        'watch' => 'https://webaction.ca/index.php/fr/a-surveiller',
     ],
     'scraper' => [
         'timeout' => 15,
